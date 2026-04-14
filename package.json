@@ -47,6 +47,35 @@
     "chatSkills": [
       {
         "path": "./resources/skills/prompt-registry-helper/SKILL.md"
+      },
+      {
+        "path": "./resources/skills/bundle-discovery/SKILL.md"
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "promptRegistry_searchBundles",
+        "displayName": "Search Prompt Registry Bundles",
+        "icon": "$(search)",
+        "userDescription": "Search the Prompt Registry catalog for bundles matching a keyword or topic.",
+        "modelDescription": "Search the local Prompt Registry bundle catalog by keyword or tags. Returns matching bundles with their id, name, description, version, tags, and author. Use this tool when the user asks about available prompt bundles, wants recommendations for prompts/instructions/agents/skills, or is looking for bundles on a specific topic (e.g. 'QA', 'documentation', 'code review'). This tool searches only locally cached metadata and never hits the network.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "searchBundles",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Search keywords describing what the user is looking for (e.g., 'QA testing', 'documentation', 'code review')"
+            },
+            "tags": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Optional tag filters to narrow results (e.g., ['testing', 'quality'])"
+            }
+          },
+          "required": ["query"]
+        }
       }
     ],
     "commands": [

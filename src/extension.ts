@@ -45,6 +45,9 @@ import {
   getEnabledDefaultHubs,
 } from './config/default-hubs';
 import {
+  BundleDiscoveryTool,
+} from './integrations/bundle-discovery-tool';
+import {
   CopilotIntegration,
 } from './integrations/copilot-integration';
 import {
@@ -504,6 +507,15 @@ export class PromptRegistryExtension {
       this.logger.warn('Failed to initialize Copilot integration', error as Error);
       // Don't fail extension activation if Copilot integration fails
       // It's an optional feature that requires GitHub Copilot
+    }
+
+    // Register LM tools independently — these work even without Copilot Chat
+    try {
+      const discoveryTool = new BundleDiscoveryTool(this.context, this.registryManager);
+      discoveryTool.activate();
+      this.context.subscriptions.push(discoveryTool);
+    } catch (error) {
+      this.logger.warn('Failed to register bundle discovery tool', error as Error);
     }
   }
 
