@@ -152,6 +152,7 @@ export class RegistryManager {
   private readonly _onSourceSynced = new vscode.EventEmitter<SourceSyncedEvent>();
   private readonly _onAutoUpdatePreferenceChanged = new vscode.EventEmitter<AutoUpdatePreferenceChangedEvent>();
   private readonly _onRepositoryBundlesChanged = new vscode.EventEmitter<void>();
+  private readonly _onReadmeDownloaded = new vscode.EventEmitter<{ sourceId: string; bundleIds: string[] }>();
 
   // Public event accessors
   public readonly onBundleInstalled = this._onBundleInstalled.event;
@@ -170,6 +171,7 @@ export class RegistryManager {
   public readonly onSourceSynced = this._onSourceSynced.event;
   public readonly onAutoUpdatePreferenceChanged = this._onAutoUpdatePreferenceChanged.event;
   public readonly onRepositoryBundlesChanged = this._onRepositoryBundlesChanged.event;
+  public readonly onReadmeDownloaded = this._onReadmeDownloaded.event;
 
   private constructor(private readonly context: vscode.ExtensionContext) {
     this.storage = new RegistryStorage(context);
@@ -1044,6 +1046,85 @@ export class RegistryManager {
   }
 
   /**
+   * Download readme files concurrently
+   * @param bundles - Bundles to download readmes for
+   * @param sourceId - Source ID for caching purposes
+   * @param adapter - Adapter to use for downloading readmes
+   */
+  private async downloadReadmesConcurrently(bundles: Bundle[], sourceId: string, adapter: IRepositoryAdapter): Promise<void> {
+    const concurrency = CONCURRENCY_CONSTANTS.README_DOWNLOAD_CONCURRENCY;
+    for (let i = 0; i < bundles.length; i += concurrency) {
+      const batch = bundles.filter((b) => b.readmeUrl).slice(i, i + concurrency);
+      await Promise.allSettled(
+        batch.map(async (bundle) => {
+          const buffer = await adapter.downloadReadme(bundle);
+          if (buffer) {
+            bundle.readme = buffer.toString('utf8');
+          }
+        })
+      );
+      const bundleIdsWithReadmes = batch.filter((b) => b.readme).map((b) => b.id);
+      if (bundleIdsWithReadmes.length > 0) {
+        this._onReadmeDownloaded.fire({ sourceId, bundleIds: bundleIdsWithReadmes });
+      }
+    }
+
+    // Re-cache bundles with readme content only if any readmes were actually downloaded
+    // to avoid a race condition with concurrent cache reads
+    if (bundles.some((b) => b.readme)) {
+      await this.storage.cacheSourceBundles(sourceId, bundles);
+    }
+  }
+
+  /**
+   * Mock readme download method for testing only
+   */
+  // private async downloadReadmesConcurrently(bundles: Bundle[], sourceId: string, _adapter: IRepositoryAdapter): Promise<void> {
+
+  //   for (const bundle of bundles) {
+  //     const tags = bundle.tags?.length ? bundle.tags.map((t) => `\`${t}\``).join(' · ') : '';
+  //     bundle.readme = [
+  //       `# ${bundle.name}`,
+  //       '',
+  //       bundle.description || 'A curated prompt bundle for GitHub Copilot.',
+  //       '',
+  //       '## Installation',
+  //       '',
+  //       '```',
+  //       `Prompt Registry → Search "${bundle.id}" → Install`,
+  //       '```',
+  //       '',
+  //       '## What\'s Included',
+  //       '',
+  //       '| Type | Description |',
+  //       '|------|-------------|',
+  //       '| Prompts | Reusable prompt templates for common workflows |',
+  //       '| Instructions | Context-setting files that guide Copilot behavior |',
+  //       '| Agents | Specialized agent modes for domain-specific tasks |',
+  //       '',
+  //       '## Usage',
+  //       '',
+  //       'Once installed, the prompts and instructions are automatically available in your Copilot Chat sessions.',
+  //       '',
+  //       tags ? `## Tags\n\n${tags}\n` : '',
+  //       '## Contributing',
+  //       '',
+  //       'Contributions are welcome! Please open an issue or submit a pull request.',
+  //       '',
+  //       '---',
+  //       '',
+  //       `*v${bundle.version}* · ${bundle.author || 'Community'} · Last updated: ${bundle.lastUpdated ? new Date(bundle.lastUpdated).toLocaleDateString() : 'N/A'}`
+  //     ].filter(Boolean).join('\n');
+  //     this._onReadmeDownloaded.fire({ sourceId, bundleIds: [bundle.id] });
+  //   }
+  //   // Re-cache bundles with readme content only if any readmes were actually downloaded
+  //   // to avoid a race condition with concurrent cache reads
+  //   if (bundles.some((b) => b.readme)) {
+  //     await this.storage.cacheSourceBundles(sourceId, bundles);
+  //   }
+  // }
+
+  /**
    * Set HubManager instance for hub integration
    * @param hubManager
    */
@@ -1276,6 +1357,11 @@ export class RegistryManager {
 
     // Fire source synced event
     this._onSourceSynced.fire({ sourceId, bundleCount: bundles.length });
+
+    // Download the readme files in concurrent, non blocking way
+    this.downloadReadmesConcurrently(bundles, sourceId, adapter).catch((err) => {
+      this.logger.error(`Failed to download readmes for source '${sourceId}'`, err as Error);
+    });
   }
 
   /**
