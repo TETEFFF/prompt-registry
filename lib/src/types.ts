@@ -39,6 +39,9 @@ export interface Collection {
   author?: string;
   tags?: string[];
   items: CollectionItem[];
+  readme?: {
+    path: string;
+  };
 }
 
 export interface ValidationRules {
@@ -71,5 +74,6 @@ export interface BundleInfo {
   outDir: string;
   manifestAsset: string;
   zipAsset: string;
+  readmeAsset?: string;
   bundleId: string;
 }
