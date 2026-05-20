@@ -81,6 +81,9 @@ interface CollectionManifest {
     items?: Record<string, any>;
   };
   mcpServers?: Record<string, any>;
+  readme?: {
+    path: string;
+  };
 }
 
 interface CollectionItem {
@@ -217,6 +220,8 @@ export class LocalAwesomeCopilotAdapter extends RepositoryAdapter {
       // Count items by kind (including MCP servers)
       const breakdown = this.calculateBreakdown(collection.items, mcpServers);
 
+      const readmeUrl = collection.readme?.path ? `file://${path.join(this.getLocalPath(), collection.readme.path)}` : undefined;
+
       // Get file stats for timestamp
       const stats = await stat(collectionFilePath);
 
@@ -235,7 +240,8 @@ export class LocalAwesomeCopilotAdapter extends RepositoryAdapter {
         lastUpdated: stats.mtime.toISOString(),
         size: `${collection.items.length} items`,
         dependencies: [],
-        license: 'MIT'
+        license: 'MIT',
+        readmeUrl: readmeUrl
       };
 
       // Store collection file name for download
@@ -572,6 +578,18 @@ export class LocalAwesomeCopilotAdapter extends RepositoryAdapter {
     } catch (error) {
       this.logger.error('Failed to download bundle', error as Error);
       throw new Error(`Failed to download bundle: ${(error as Error).message}`);
+    }
+  }
+
+  public async downloadReadme(bundle: Bundle): Promise<string | null> {
+    if (!bundle.readmeUrl) {
+      return null;
+    }
+    try {
+      return await readFile(bundle.readmeUrl, 'utf8');
+    } catch (error) {
+      this.logger.error('Failed to download readme', error as Error);
+      return null;
     }
   }
 

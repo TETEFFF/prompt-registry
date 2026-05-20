@@ -1053,8 +1053,9 @@ export class RegistryManager {
    */
   private async downloadReadmesConcurrently(bundles: Bundle[], sourceId: string, adapter: IRepositoryAdapter): Promise<void> {
     const concurrency = CONCURRENCY_CONSTANTS.README_DOWNLOAD_CONCURRENCY;
-    for (let i = 0; i < bundles.length; i += concurrency) {
-      const batch = bundles.filter((b) => b.readmeUrl).slice(i, i + concurrency);
+    const filteredBundles = bundles.filter((b) => b.readmeUrl);
+    for (let i = 0; i < filteredBundles.length; i += concurrency) {
+      const batch = filteredBundles.slice(i, i + concurrency);
       await Promise.allSettled(
         batch.map(async (bundle) => {
           const readme = await adapter.downloadReadme(bundle);
@@ -1066,7 +1067,7 @@ export class RegistryManager {
       const bundleIdsWithReadmes = batch.filter((b) => b.readme).map((b) => b.id);
       if (bundleIdsWithReadmes.length > 0) {
         // Cache before firing event so consumers reading from cache get the readme content
-        await this.storage.cacheSourceBundles(sourceId, bundles);
+        await this.storage.cacheSourceBundles(sourceId, filteredBundles);
         this._onReadmeDownloaded.fire({ sourceId, bundleIds: bundleIdsWithReadmes });
       }
     }

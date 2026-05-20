@@ -234,13 +234,18 @@ export function validateCollectionObject(
 
   // Validate readme if present (optional field)
   if (col.readme !== undefined) {
-    if (typeof col.readme !== 'string' || col.readme.trim() === '') {
-      errors.push(`${sourceLabel}: readme must be a non-empty string path`);
+    if (!col.readme || typeof col.readme !== 'object') {
+      errors.push(`${sourceLabel}: readme must be an object with a "path" property`);
     } else {
-      try {
-        normalizeRepoRelativePath(col.readme);
-      } catch {
-        errors.push(`${sourceLabel}: readme has an invalid path (must be repo-root relative): ${col.readme}`);
+      const readme = col.readme as Record<string, unknown>;
+      if (!readme.path || typeof readme.path !== 'string' || readme.path.trim() === '') {
+        errors.push(`${sourceLabel}: readme.path must be a non-empty string`);
+      } else {
+        try {
+          normalizeRepoRelativePath(readme.path);
+        } catch {
+          errors.push(`${sourceLabel}: readme.path has an invalid path (must be repo-root relative): ${readme.path}`);
+        }
       }
     }
   }
