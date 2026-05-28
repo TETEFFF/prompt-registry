@@ -232,6 +232,24 @@ export function validateCollectionObject(
     }
   }
 
+  // Validate readme if present (optional field)
+  if (col.readme !== undefined) {
+    if (!col.readme || typeof col.readme !== 'object') {
+      errors.push(`${sourceLabel}: readme must be an object with a "path" property`);
+    } else {
+      const readme = col.readme as Record<string, unknown>;
+      if (!readme.path || typeof readme.path !== 'string' || readme.path.trim() === '') {
+        errors.push(`${sourceLabel}: readme.path must be a non-empty string`);
+      } else {
+        try {
+          normalizeRepoRelativePath(readme.path);
+        } catch {
+          errors.push(`${sourceLabel}: readme.path has an invalid path (must be repo-root relative): ${readme.path}`);
+        }
+      }
+    }
+  }
+
   if (!Array.isArray(col.items)) {
     errors.push(`${sourceLabel}: Missing required field: items (array)`);
   }
@@ -318,6 +336,19 @@ export function validateCollectionFile(
         errors.push(`${rel}: items[${idx}] referenced file not found: ${relPath}`);
       }
     });
+  }
+
+  if (collection?.readme?.path) {
+    let relPath: string;
+    try {
+      relPath = normalizeRepoRelativePath(collection.readme.path);
+    } catch {
+      return { ok: false, errors: [...errors, `${rel}: readme path is invalid: ${collection.readme.path}`] };
+    }
+    const readmeAbs = path.join(repoRoot, relPath);
+    if (!fs.existsSync(readmeAbs)) {
+      errors.push(`${rel}: readme referenced file not found: ${relPath}`);
+    }
   }
 
   return { ok: errors.length === 0, errors, collection };

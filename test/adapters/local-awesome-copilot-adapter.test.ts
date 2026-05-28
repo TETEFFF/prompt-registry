@@ -75,8 +75,8 @@ suite('LocalAwesomeCopilotAdapter', () => {
       const adapter = new LocalAwesomeCopilotAdapter(mockSource);
       const metadata = await adapter.fetchMetadata();
 
-      // We have 3 collections in fixtures
-      assert.strictEqual(metadata.bundleCount, 3);
+      // We have 5 collections in fixtures
+      assert.strictEqual(metadata.bundleCount, 5);
     });
 
     test('should throw error for non-existent directory', async () => {
@@ -96,11 +96,11 @@ suite('LocalAwesomeCopilotAdapter', () => {
       const bundles = await adapter.fetchBundles();
 
       assert.ok(Array.isArray(bundles));
-      assert.strictEqual(bundles.length, 3);
+      assert.strictEqual(bundles.length, 5);
 
       // Check collection IDs
       const bundleIds = bundles.map((b) => b.id).toSorted();
-      assert.deepStrictEqual(bundleIds, ['python-dev', 'skills-collection', 'test-collection']);
+      assert.deepStrictEqual(bundleIds, ['python-dev', 'skills-collection', 'test-collection', 'test-with-readme', 'test-without-readme']);
     });
 
     test('should parse YAML collections correctly', async () => {
@@ -205,7 +205,7 @@ suite('LocalAwesomeCopilotAdapter', () => {
 
       assert.strictEqual(result.valid, true);
       assert.strictEqual(result.errors.length, 0);
-      assert.strictEqual(result.bundlesFound, 3);
+      assert.strictEqual(result.bundlesFound, 5);
     });
 
     test('should fail validation for non-existent directory', async () => {
