@@ -1,3 +1,4 @@
+import * as tls from 'node:tls';
 import {
   Client,
   ClientOptions,
@@ -45,11 +46,14 @@ export class ElasticSearchTransport implements TelemetryTransport {
   private debugChannel: vscode.OutputChannel | undefined;
   private disposables: vscode.Disposable[] = [];
   private flushTimer: ReturnType<typeof setInterval> | undefined;
+  private warnedNoSystemCaApi = false;
 
   private log(level: 'debug' | 'info' | 'warn' | 'error', message: string): void {
-    if (level === 'warn' || level === 'error') {
-      this.logger[level](`[ES Transport] ${message}`);
-    }
+    // Route every level through the main logger (which gates by LOG_LEVEL) so the
+    // connection lifecycle is observable in the "Prompt Registry" output channel,
+    // not just on warn/error. The dedicated debug channel (only present with the
+    // ES_LOCAL_URL dev override) mirrors everything when enabled.
+    this.logger[level](`[ES Transport] ${message}`);
     if (this.debugChannel) {
       const timestamp = new Date().toISOString();
       this.debugChannel.appendLine(`[${timestamp}] ${level.toUpperCase()}: ${message}`);
@@ -108,6 +112,43 @@ export class ElasticSearchTransport implements TelemetryTransport {
   }
 
   /**
+   * Build the CA trust bundle the ES client should use.
+   *
+   * Corporate TLS-inspection proxies (e.g. Netskope) re-sign connections with a
+   * CA that lives in the OS trust store, which Node ignores in favour of its own
+   * bundled Mozilla roots. We merge the OS store ('system') with Node's defaults
+   * ('default', which also includes NODE_EXTRA_CA_CERTS) so the re-signed cert
+   * validates without disabling verification.
+   *
+   * Returns `undefined` (leaving Node's default trust untouched) when the runtime
+   * lacks `tls.getCACertificates` (Node < 22.15) or the system store yields nothing.
+   */
+  private resolveCACertificates(): string[] | undefined {
+    if (typeof tls.getCACertificates !== 'function') {
+      if (!this.warnedNoSystemCaApi) {
+        this.warnedNoSystemCaApi = true;
+        this.log('warn', 'tls.getCACertificates unavailable on this runtime (Node < 22.15); system-CA trust disabled');
+      }
+      return undefined;
+    }
+
+    const readStore = (store: 'system' | 'default'): string[] => {
+      try {
+        return tls.getCACertificates(store);
+      } catch {
+        return [];
+      }
+    };
+
+    const system = readStore('system');
+    if (system.length === 0) {
+      return undefined;
+    }
+
+    return Array.from(new Set([...system, ...readStore('default')]));
+  }
+
+  /**
    * Buffer a document for the next batched flush (every 10s).
    * If no client is active, documents are queued until one registers.
    * @param doc - the telemetry document to send
@@ -129,10 +170,18 @@ export class ElasticSearchTransport implements TelemetryTransport {
    */
   public async registerHub(hubId: string, config: ElasticSearchConfig): Promise<void> {
     try {
+      this.log('info', `Registering ES client for hub "${hubId}" at ${config.node}`);
       this.closeActiveClient();
       this.stopFlushTimer();
 
+      const ca = this.resolveCACertificates();
       const clientOptions: ClientOptions = { node: config.node };
+      if (ca) {
+        clientOptions.tls = { ca };
+        this.log('info', `Loaded ${ca.length} CA certificate(s) from the system + default trust stores`);
+      } else {
+        this.log('info', 'Using Node default CA trust (no system-store certificates merged)');
+      }
       const client = new Client(clientOptions);
 
       const indexPrefix = config.indexPrefix ?? 'prompt-registry-telemetry';
@@ -147,7 +196,7 @@ export class ElasticSearchTransport implements TelemetryTransport {
       }
 
       this.activeClient = { client, indexPrefix, hubId };
-      this.log('info', `Registered ES client for hub "${hubId}" at ${config.node}`);
+      this.log('info', `Registered ES client for hub "${hubId}" at ${config.node} (index "${indexName}")`);
 
       this.flushPending();
       this.startFlushTimer();

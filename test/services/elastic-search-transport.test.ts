@@ -25,6 +25,14 @@ suite('ElasticSearchTransport', () => {
   const esModule = require('@elastic/elasticsearch');
   const originalClient = esModule.Client;
 
+  // Production code does `import * as tls from 'node:tls'`, which TypeScript
+  // compiles to an __importStar copy whose properties are live getters onto the
+  // real module. Stubbing the real module is therefore visible to production
+  // code; stubbing a local `import * as tls` copy is not (and its descriptors
+  // are non-configurable). So we stub the real module directly.
+  const tlsModule = require('node:tls');
+  const originalGetCACertificates = tlsModule.getCACertificates;
+
   const createMockEsClient = () => ({
     indices: { create: indicesCreateStub },
     helpers: { bulk: bulkStub },
@@ -58,6 +66,7 @@ suite('ElasticSearchTransport', () => {
     transport.dispose();
     clock.restore();
     esModule.Client = originalClient;
+    tlsModule.getCACertificates = originalGetCACertificates;
     sandbox.restore();
   });
 
@@ -67,6 +76,41 @@ suite('ElasticSearchTransport', () => {
 
       assert.strictEqual(lastClientOptions.node, 'https://es-proxy.example.com:8080');
       assert.strictEqual(lastClientOptions.auth, undefined);
+    });
+
+    test('should pass system + default CA certificates to the ES client when available', async () => {
+      // Netskope (and other corporate TLS-inspection) CAs live in the OS trust
+      // store, which Node ignores by default. The transport must merge them in
+      // so the proxy's re-signed certificate validates.
+      const getCaStub = sandbox.stub(tlsModule, 'getCACertificates');
+      getCaStub.withArgs('system').returns(['-----SYSTEM CA-----']);
+      getCaStub.withArgs('default').returns(['-----DEFAULT CA-----']);
+
+      await transport.registerHub('hub-1', baseConfig);
+
+      assert.ok(Array.isArray(lastClientOptions.tls?.ca), 'expected tls.ca to be an array');
+      assert.ok(lastClientOptions.tls.ca.includes('-----SYSTEM CA-----'), 'expected system CA');
+      assert.ok(lastClientOptions.tls.ca.includes('-----DEFAULT CA-----'), 'expected default CA bundle');
+    });
+
+    test('should not set tls.ca when the system trust store is empty', async () => {
+      const getCaStub = sandbox.stub(tlsModule, 'getCACertificates');
+      getCaStub.withArgs('system').returns([]);
+      getCaStub.withArgs('default').returns(['-----DEFAULT CA-----']);
+
+      await transport.registerHub('hub-1', baseConfig);
+
+      assert.strictEqual(lastClientOptions.tls?.ca, undefined);
+    });
+
+    test('should register successfully when tls.getCACertificates is unavailable', async () => {
+      // Older Node runtimes (VS Code < ~1.103) lack tls.getCACertificates.
+      tlsModule.getCACertificates = undefined;
+
+      await transport.registerHub('hub-1', baseConfig);
+
+      assert.strictEqual(indicesCreateStub.callCount, 1);
+      assert.strictEqual(lastClientOptions.tls?.ca, undefined);
     });
 
     test('should create index on registration', async () => {

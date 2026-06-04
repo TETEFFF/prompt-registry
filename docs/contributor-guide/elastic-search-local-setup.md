@@ -27,6 +27,12 @@ If you encounter TLS/SSL certificate errors when pulling images or connecting to
 
 The Netskope certificate must be added to Docker's trusted certificates. The approach varies by OS.
 
+#### Extension-side telemetry connection
+
+The error above is about Docker/the OS toolchain. The extension's own telemetry connection to the Elastic Search proxy handles this automatically: the transport loads the operating system trust store (where the Netskope/corporate CA already lives) and merges it with Node's default roots, so the re-signed certificate validates with no per-user configuration.
+
+This requires a runtime with `tls.getCACertificates` (Node ≥ 22.15). On older hosts the transport falls back to Node's bundled roots only — set `NODE_EXTRA_CA_CERTS` to point at the corporate CA file if the connection then fails.
+
 ### Variable Interpolation in `.env`
 
 The `elastic-start-local` tool may generate `.env` values that reference other variables, e.g.:
